@@ -1,0 +1,14 @@
+services:
+  webapp:
+    build: .
+    image: webapp:latest
+    container_name: webapp
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    networks:
+      - monitoring-net
+
+networks:
+  monitoring-net:
+    external: true

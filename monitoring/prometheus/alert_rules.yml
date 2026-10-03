@@ -1,0 +1,29 @@
+groups:
+  - name: webapp
+    rules:
+      - alert: WebappDown
+        expr: up{job="webapp"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Webapp is down"
+          description: "Prometheus cannot scrape the webapp for more than 30 seconds."
+
+      - alert: HighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[1m])) / sum(rate(http_requests_total[1m])) > 0.05
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5% of requests are failing"
+          description: "The 5xx ratio has been above 5% for 1 minute."
+
+      - alert: HighLatencyP95
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency above 500ms"
+          description: "95% of requests take longer than 0.5s."

@@ -1,0 +1,65 @@
+stages:
+  - test
+  - build
+  - publish
+  - deploy
+
+variables:
+  GIT_DEPTH: "20"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+# ---------- 1. TEST ----------
+test:
+  stage: test
+  image: python:3.12-slim
+  cache:
+    key: pip-cache
+    paths:
+      - .cache/pip
+  script:
+    - cd webapp
+    - pip install -r requirements-dev.txt
+    - pytest -v --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: webapp/report.xml
+
+# ---------- 2. BUILD ----------
+build:
+  stage: build
+  script:
+    - docker build -t webapp:latest -t webapp:$CI_COMMIT_SHORT_SHA webapp
+    - docker image ls webapp
+
+# ---------- 3. PUBLISH (opt-in: set CI/CD variable PUSH_TO_REGISTRY=true) ----------
+publish:
+  stage: publish
+  rules:
+    - if: '$PUSH_TO_REGISTRY == "true"'
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker tag webapp:$CI_COMMIT_SHORT_SHA $CI_REGISTRY_IMAGE/webapp:$CI_COMMIT_SHORT_SHA
+    - docker tag webapp:$CI_COMMIT_SHORT_SHA $CI_REGISTRY_IMAGE/webapp:latest
+    - docker push $CI_REGISTRY_IMAGE/webapp:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/webapp:latest
+
+# ---------- 4. DEPLOY (default branch only) ----------
+deploy:
+  stage: deploy
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - docker network inspect monitoring-net >/dev/null 2>&1 || docker network create monitoring-net
+    - docker compose -f webapp/compose.yml up -d --no-build
+    - |
+      for i in $(seq 1 12); do
+        status=$(docker inspect -f '{{.State.Health.Status}}' webapp)
+        echo "health: $status"
+        [ "$status" = "healthy" ] && exit 0
+        sleep 5
+      done
+      docker logs webapp --tail 50
+      exit 1
+  environment:
+    name: production
